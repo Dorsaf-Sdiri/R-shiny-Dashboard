@@ -1,0 +1,101 @@
+library(FactoMineR)
+library("class")
+library("plotrix")
+library("shiny")
+
+shinyServer<-function(input, output, session) {
+  base1=read.csv(file='dermatology.csv',sep=';',dec=',')
+  
+  
+  
+  res.pca=PCA(base1,quali.sup=35)
+  
+  base<-matrix(730,365,2)
+  base[,1]<-res.pca$ind$coord[,1]
+  base[,2]<-res.pca$ind$coord[,2]
+  base<-cbind(base[,1],base[,2])
+  
+  
+  train<-base[1:200,-35]
+  trainclass<-base1[1:200,35]
+  
+  test<-base[201:365,-35]
+  testclass<-base1[200:365,35]
+  
+  rx1 <- range(train[,1])
+  rx2 <- range(train[,2])
+  
+  px1 <- seq(from = rx1[1], to = rx1[2], by = 0.1 )
+  px2 <- seq(from = rx2[1], to = rx2[2], by = 0.1 )
+  xnew <- expand.grid(x1 = px1, x2 = px2)
+  
+  idx  <- NULL
+  dmat <- NULL
+  ## ID the point clicked on 
+  xy  <- reactive(c(input$click_plot$x, input$click_plot$y))
+  id <- observe({
+    if (!is.null(xy())) {
+      dmat <- as.matrix(dist(rbind(xy(), train)))
+      idx <<- which.min(dmat[1, -1])
+      dmat <<- dmat[-1, -1]
+    }
+  })
+  
+  
+ 
+  
+  
+  
+  output$plot1 <- renderPlot({
+    xy()
+    ## Fit model
+    fit <- knn(train = train, test = xnew, cl = trainclass, k = input$k, prob = TRUE)
+    prob <- attr(fit, "prob")
+    prob <- ifelse(fit=="1", prob, 1-prob)
+    probs <- matrix(prob, nrow=length(px1),ncol= length(px2))
+    
+    
+    
+    
+    
+    ## Plot create empty plot
+    plot(train, asp = 1, type = "n", xlab = "x1", ylab = "x2", 
+         xlim = range(px1), ylim = range(px2), main =  paste0(input$k, "-Nearest Neighbours"))
+    
+    ## Get neighbourhood, draw circle, if needed
+    if (input$showN & !is.null(idx)) {
+      rad <- sort(dmat[, idx])[1 + input$k]
+      draw.circle(x = train[idx, 1], y = train[idx, 2], radius= rad, col = "lightgoldenrod1")
+    }
+    
+    ## Add decision boundary
+    contour(px1, px2, probs, levels = 0.5, labels = "", lwd = 1.5, add = TRUE)
+    par(mar = rep(2,4))
+    
+    points(train, col=ifelse(trainclass==1, "coral", "cornflowerblue"))
+    points(xnew, pch=".", cex=1.2, col=ifelse(probs>0.5, "coral", "cornflowerblue"))
+    box()
+    ## ID points within neighbourhood
+    if (input$showN & !is.null(idx)) {
+      points(train[which(dmat[, idx] <= rad), ], col = "red", pch = 20, cex = 0.75)
+      points(train[idx, , drop = FALSE], pch = 3, cex = 1.5, lwd = 2)
+    }
+    
+  })
+  
+}
+shinyUI<-pageWithSidebar(
+  headerPanel('KNN For Diagnosis of ESD Diseases'),
+  sidebarPanel(
+    sliderInput('k', 'Select the Number of Nearest Neighbours ', value = 2, min = 4, max = 150),
+    checkboxInput('showN', label = "Show the neighbourhood for one point (click to select a point)")
+    
+  ),
+  mainPanel(
+    plotOutput('plot1', width = "600px", height = "600px",  click = "click_plot")
+    
+    
+  )
+)
+shinyApp(server=shinyServer,ui=shinyUI)
+
